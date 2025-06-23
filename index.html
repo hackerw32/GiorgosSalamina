@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Πελατολόγιο</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-900">
+  <div class="max-w-4xl mx-auto p-4 space-y-6">
+    
+    <!-- Ραντεβού -->
+    <section class="space-y-2">
+      <h2 class="text-xl font-bold">📅 Καταχώριση Ραντεβού <span class="text-sm text-gray-500" id="appointmentCount">(0)</span></h2>
+      <input id="appointmentClientSearch" placeholder="Αναζήτηση πελάτη" oninput="filterClientOptions()" class="w-full border rounded p-2" />
+      <select id="appointmentClient" class="w-full border rounded p-2 mt-1"></select>
+      <input type="datetime-local" id="appointmentTime" class="border rounded p-2 w-full mt-1" />
+      <textarea id="appointmentNotes" placeholder="Σχόλια ραντεβού" class="w-full border rounded p-2 mt-1"></textarea>
+      <button onclick="saveAppointment()" class="bg-blue-600 text-white px-4 py-2 rounded">Αποθήκευση</button>
+      <p id="appointmentSavedMsg" class="text-green-600"></p>
+      <div class="pt-4">
+        <h3 class="font-semibold">🔍 Αναζήτηση Ραντεβού</h3>
+        <input id="appointmentSearch" placeholder="Αναζήτηση σε πελάτες & ραντεβού" oninput="renderAppointments()" class="w-full border rounded p-2 mt-1" />
+      </div>
+      <div id="appointments" class="space-y-2 pt-2"></div>
+    </section>
+
+
+    <!-- Καταχώριση Πελάτη -->
+    <section class="space-y-2">
+      <h2 class="text-xl font-bold">➕ Καταχώριση Πελάτη <span class="text-sm text-gray-500" id="clientCount">(0)</span></h2>
+      <input id="name" placeholder="Όνομα" class="w-full border rounded p-2" />
+      <textarea id="notes" placeholder="Σχόλια" class="w-full border rounded p-2 mt-1"></textarea>
+      <input id="phone" placeholder="Τηλέφωνο" class="w-full border rounded p-2 mt-1" />
+      <input id="address" placeholder="Διεύθυνση" class="w-full border rounded p-2 mt-1" />
+      <button onclick="saveClient()" class="bg-green-600 text-white px-4 py-2 rounded">Αποθήκευση</button>
+      <p id="clientSavedMsg" class="text-green-600"></p>
+    </section>
+
+    <!-- Αναζήτηση Πελατών -->
+    <section class="space-y-2">
+      <h2 class="text-xl font-bold">🔍 Αναζήτηση Πελατών</h2>
+      <input id="search" placeholder="Αναζήτηση σε όλα τα πεδία" oninput="debouncedSearchClients()" class="w-full border rounded p-2" />
+      <div id="clients" class="space-y-2"></div>
+    </section>
+
+    <!-- Ρυθμίσεις & Export -->
+    <section class="space-y-2 border-t pt-4">
+      <button onclick="backupData()" class="bg-yellow-600 text-white px-4 py-2 rounded">📦 Backup</button>
+      <input type="file" onchange="restoreData(event)" class="block" />
+      
+    </section>
+  </div>
+
+  <script>
+    let clients = JSON.parse(localStorage.getItem('clients') || '[]');
+    let appointments = JSON.parse(localStorage.getItem('appointments') || '[]');
+
+    let currentClientPage = 1, clientsPerPage = 5, searchClientQuery = '', searchClientTimeout;
+
+    function updateCounts() {
+      document.getElementById('clientCount').textContent = `(${clients.length})`;
+      document.getElementById('appointmentCount').textContent = `(${appointments.length})`;
+    }
+
+    function saveClient() {
+      const name=document.getElementById('name').value.trim();
+      if(!name)return alert('Συμπλήρωσε όνομα');
+      const c={id:Date.now(),name,notes:document.getElementById('notes').value.trim(),phone:document.getElementById('phone').value.trim(),address:document.getElementById('address').value.trim()};
+      clients.unshift(c); localStorage.setItem('clients', JSON.stringify(clients));
+      document.getElementById('clientSavedMsg').textContent='✅ Ο πελάτης αποθηκεύτηκε';
+      ['name','notes','phone','address'].forEach(id=>document.getElementById(id).value='');
+      updateClientSelect(); updateCounts(); debouncedSearchClients();
+      setTimeout(()=>document.getElementById('clientSavedMsg').textContent='',3000);
+    }
+
+    function debouncedSearchClients() {
+      clearTimeout(searchClientTimeout);
+      searchClientTimeout = setTimeout(() => {
+        currentClientPage = 1;
+        searchClientQuery = document.getElementById('search').value;
+        searchClients();
+      }, 500);
+    }
+
+    function searchClients() {
+      const q=searchClientQuery.toLowerCase();
+      renderClients(clients.filter(c=>[c.name,c.phone,c.address,c.notes].some(f=>f.toLowerCase().includes(q))));
+    }
+
+    function renderClients(list) {
+      const div=document.getElementById('clients'); div.innerHTML='';
+      const total= Math.ceil(list.length/clientsPerPage);
+      const slice=list.slice((currentClientPage-1)*clientsPerPage,currentClientPage*clientsPerPage);
+      slice.forEach(c=>{
+        const el=document.createElement('div');
+        el.className='p-3 bg-white rounded shadow';
+        el.innerHTML=`<strong>${c.name}</strong><br>Τηλ: ${c.phone}<br>Διεύθυνση: ${c.address}<br><em>${c.notes}</em>
+          <div class='mt-2 space-x-2'>
+            <button onclick='editClient(${c.id})' class='text-sm px-2 py-1 bg-blue-500 text-white rounded'>✏️ Επεξεργασία</button>
+            <button onclick='deleteClient(${c.id})' class='text-sm px-2 py-1 bg-red-500 text-white rounded'>🗑️ Διαγραφή</button>
+          </div>`;
+        div.appendChild(el);
+      });
+      const nav=document.createElement('div');
+      nav.className='flex justify-between items-center pt-2';
+      nav.innerHTML = `
+        <button onclick="prevClientPage()" ${currentClientPage===1?'disabled':''} class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300">⬅️ Προηγούμενη</button>
+        <span>Σελίδα ${currentClientPage} από ${total||1}</span>
+        <button onclick="nextClientPage(${total})" ${currentClientPage===total?'disabled':''} class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300">Επόμενη ➡️</button>`;
+      div.appendChild(nav);
+    }
+
+    function prevClientPage(){ if(currentClientPage>1){currentClientPage--; searchClients();} }
+    function nextClientPage(total){ if(currentClientPage<total){currentClientPage++; searchClients();} }
+
+    function editClient(id){
+      const c = clients.find(x=>x.id===id);
+      if(!c)return;
+      ['name','notes','phone','address'].forEach(f=>document.getElementById(f).value=c[f]);
+      clients=clients.filter(x=>x.id!==id);
+      localStorage.setItem('clients',JSON.stringify(clients));
+      updateClientSelect();updateCounts();debouncedSearchClients();
+    }
+
+    function deleteClient(id){
+      if(!confirm('Διαγραφή;'))return;
+      clients=clients.filter(c=>c.id!==id);
+      localStorage.setItem('clients',JSON.stringify(clients));
+      updateClientSelect();updateCounts();debouncedSearchClients();
+    }
+
+    function updateClientSelect(){
+      const sel=document.getElementById('appointmentClient');
+      sel.innerHTML='';
+      clients.forEach(c=>{
+        const opt=document.createElement('option');
+        opt.value=c.id; opt.textContent=`${c.name} (${c.phone})`;
+        sel.appendChild(opt);
+      });
+      filterClientOptions();
+    }
+    function filterClientOptions(){
+      const q=document.getElementById('appointmentClientSearch').value.toLowerCase();
+      const sel=document.getElementById('appointmentClient');
+      sel.innerHTML='';
+      clients.filter(c=>[c.name,c.phone,c.address,c.notes].some(f=>f.toLowerCase().includes(q)))
+        .forEach(c=>{
+          const opt=document.createElement('option');
+          opt.value=c.id; opt.textContent=`${c.name} (${c.phone})`;
+          sel.appendChild(opt);
+        });
+    }
+
+    function saveAppointment(){
+      const cid=parseInt(document.getElementById('appointmentClient').value);
+      const time=document.getElementById('appointmentTime').value;
+      const notes=document.getElementById('appointmentNotes').value;
+      if(!cid||!time)return alert('Συμπλήρωσε όλα τα πεδία');
+      const a={id:Date.now(),clientId:cid,time,notes};
+      appointments.push(a); localStorage.setItem('appointments',JSON.stringify(appointments));
+      renderAppointments(); updateCounts();
+      document.getElementById('appointmentTime').value='';
+      document.getElementById('appointmentNotes').value='';
+      document.getElementById('appointmentSavedMsg').textContent='✅ Το ραντεβού αποθηκεύτηκε';
+      setTimeout(()=>document.getElementById('appointmentSavedMsg').textContent='',3000);
+    }
+
+    function renderAppointments(){
+      const q=document.getElementById('appointmentSearch').value.toLowerCase();
+      const div=document.getElementById('appointments'); div.innerHTML='';
+      appointments.sort((a,b)=>new Date(a.time)-new Date(b.time))
+        .filter(a=>{
+          const c=clients.find(x=>x.id===a.clientId);
+          const text=[c?.name,c?.phone,c?.address,c?.notes,a.notes,a.time].join(' ').toLowerCase();
+          return text.includes(q);
+        }).forEach(a=>{
+          const c=clients.find(x=>x.id===a.clientId);
+          if(!c)return;
+          const el=document.createElement('div');
+          el.className='p-3 bg-white rounded shadow';
+          el.innerHTML=`<strong>${c.name}</strong><br>Τηλέφωνο: ${c.phone}<br>Διεύθυνση: ${c.address}<br>
+            Πότε: ${new Date(a.time).toLocaleString()}<br><em>${a.notes}</em>
+            <div class='mt-2 space-x-2'>
+              <button onclick='editAppointment(${a.id})' class='text-sm px-2 py-1 bg-blue-500 text-white rounded'>✏️ Επεξεργασία</button>
+              <button onclick='deleteAppointment(${a.id})' class='text-sm px-2 py-1 bg-red-500 text-white rounded'>🗑️ Διαγραφή</button>
+            </div>`;
+          div.appendChild(el);
+        });
+    }
+
+    function deleteAppointment(id){
+      if(!confirm('Διαγραφή ραντεβού;'))return;
+      appointments=appointments.filter(a=>a.id!==id);
+      localStorage.setItem('appointments',JSON.stringify(appointments));
+      renderAppointments();updateCounts();
+    }
+
+    function editAppointment(id){
+      const a=appointments.find(x=>x.id===id); if(!a)return;
+      document.getElementById('appointmentClient').value=a.clientId;
+      document.getElementById('appointmentTime').value=a.time;
+      document.getElementById('appointmentNotes').value=a.notes;
+      appointments=appointments.filter(x=>x.id!==id);
+      localStorage.setItem('appointments',JSON.stringify(appointments));
+      renderAppointments();updateCounts();
+    }
+
+    function backupData(){
+      const blob=new Blob([JSON.stringify({clients,appointments})],{type:'application/json'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;a.download='backup.json';a.click();
+    }
+
+    function restoreData(e){
+      const f=e.target.files[0]; if(!f)return;
+      const r=new FileReader();
+      r.onload=ev=>{
+        const d=JSON.parse(ev.target.result);
+        clients=d.clients||[]; appointments=d.appointments||[];
+        localStorage.setItem('clients',JSON.stringify(clients));
+        localStorage.setItem('appointments',JSON.stringify(appointments));
+        updateClientSelect();renderAppointments();updateCounts();debouncedSearchClients();
+      };
+      r.readAsText(f);
+    }
+
+    
+
+    updateClientSelect(); renderAppointments(); updateCounts(); debouncedSearchClients();
+  </script>
+</body>
+</html>
